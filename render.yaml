@@ -1,0 +1,35 @@
+# Render Blueprint برای سرویس worker (Node.js)
+# این فایل runtime را روی Node قفل می‌کند تا Render اشتباهی Python تشخیص ندهد.
+# نکته: این فایل باید در ریشه‌ی ریپوی worker باشد (کنار package.json).
+services:
+  - type: web
+    name: journal-photo-worker
+    runtime: node
+    plan: free            # برای تولید واقعی به starter ارتقا بده تا worker نخوابد
+    region: frankfurt     # نزدیک‌ترین ریجن؛ در صورت نیاز عوض کن
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # این‌ها را به‌صورت دستی در داشبورد Render پر کن (sync: false یعنی Blueprint مقدارشان را نمی‌نویسد):
+      - key: WORKER_SHARED_SECRET
+        sync: false        # عیناً همان مقداری که در سرویس web گذاشته‌ای
+      - key: AVALAI_API_KEY
+        sync: false        # کلید AvalAI (پیشوند aa-)
+      # این‌ها مقدار ثابت دارند و خودکار ست می‌شوند:
+      - key: PROVIDER_ORDER
+        value: avalai,mock   # AvalAI (تولید واقعی) + mock به‌عنوان پشتیبان
+      - key: AVALAI_BASE_URL
+        value: https://api.avalai.ir
+      - key: AVALAI_API_VERSION
+        value: v1beta
+      - key: AVALAI_MODEL_STANDARD
+        value: gemini-3.1-flash-image-preview
+      - key: AVALAI_MODEL_PRO
+        value: gemini-3-pro-image-preview
+      - key: AVALAI_IMAGE_SIZE_STANDARD
+        value: 1K
+      - key: AVALAI_IMAGE_SIZE_PRO
+        value: 2K
