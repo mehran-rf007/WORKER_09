@@ -1,61 +1,79 @@
-# Journal Photo Studio — مونوریپو پروژه
+# Image Worker — لایه‌ی واسط API (ضدتحریم)
 
-سرویس تولید عکس ژورنالی محصول برای فروشنده‌های اینستاگرام. این مخزن شامل دو برنامه‌ی مستقل و اسکیمای دیتابیس است.
+این سرویس مستقل، لایه‌ی واسط بین سایت اصلی (Next.js) و مدل‌های تصویرسازی (Nano Banana / Gemini) است.
+باید روی سروری **خارج از ایران** اجرا شود تا مشکل تحریم API حل شود.
+
+معماری دارای **انتزاع ارائه‌دهنده (Provider Abstraction)** است: ابتدا Gemini مستقیم، و در صورت خطا به‌صورت خودکار سرویس واسط (Wrapper) جایگزین می‌شود.
+
+---
+
+## ساختار پروژه
 
 ```text
-journal-photo-studio/
-├── README.md                  ← همین فایل
-├── docs/
-│   └── PROJECT_PLAN.md        ← نقشه‌ی کامل پروژه (معماری، درآمد، رودمپ)
-├── worker/                    ← فاز ۰: لایه‌ی واسط API (سرور خارج از ایران)
-│   ├── src/ (index, config, auth, types, prompt, providers)
-│   └── ...
-├── supabase/                  ← فاز ۱: اسکیما + منطق کردیت + RLS
-│   ├── schema.sql
-│   ├── functions.sql
-│   ├── policies.sql
-│   └── seed_preset_models.sql
-└── web/                       ← فاز ۱: اپلیکیشن Next.js
-    ├── app/ (صفحات + API routes)
-    ├── components/ (UploadDropzone, ModelGallery, StyleSelector)
-    └── lib/ (promptEngine, credits, backgroundRemoval, models, supabase, callWorker)
+image-worker/
+├── package.json
+├── tsconfig.json
+├── .env.example
+├── .gitignore
+├── README.md
+├── src/
+│   ├── index.ts                 # سرور Express (health + generate)
+│   ├── config.ts                # خواندن متغیرهای محیطی
+│   ├── auth.ts                  # بررسی امضای HMAC بین سایت و Worker
+│   ├── types.ts                 # تعریف نوع درخواست/پاسخ
+│   ├── prompt/buildPrompt.ts    # موتور پرامپت + قفل محصول
+│   └── providers/
+│       ├── Provider.ts          # اینترفیس ارائه‌دهنده
+│       ├── GeminiProvider.ts    # گوگل مستقیم (@google/genai)
+│       ├── WrapperProvider.ts   # سرویس واسط (OpenAI-style)
+│       └── ProviderManager.ts   # fallback + تلاش مجدد با backoff
+└── integration/
+    └── nextjs-callWorker.ts     # نمونه فراخوانی از سمت سایت اصلی
 ```
 
 ---
 
-## جریان کلی (اجزا چگونه کار می‌کنند)
+## نصب و اجرا
 
-1. کاربر در `web` (Next.js) عکس محصول را آپلود می‌کند → `/api/upload` پس‌زمینه را حذف/استاندارد کرده و در Supabase Storage ذخیره می‌کند.
-2. کاربر یک مدل از گالری (`/api/models`) و سبک/کیفیت انتخاب می‌کند.
-3. `/api/generate`: ابتدا **موتور پرامپت پیشرفته** (`lib/promptEngine`) پرامپت با «قفل محصول» می‌سازد → کردیت به صورت اتمیک کسر می‌شود (RPC دیتابیس) → درخواست با امضای HMAC به `worker` فرستاده می‌شود.
-4. `worker` روی سرور خارج از ایران با Provider Abstraction (Gemini → سرویس واسط) تصویر تولید می‌کند.
-5. خروجی در Storage ذخیره و در جدول `images` ثبت می‌شود. در صورت خطا، کردیت **خودکار بازگردانده** می‌شود.
-
----
-
-## راه‌اندازی
-
-### ۱) دیتابیس (Supabase)
-در SQL Editor به ترتیب اجرا کنید:
-```text
-supabase/schema.sql  →  supabase/functions.sql  →  supabase/policies.sql  →  supabase/seed_preset_models.sql
-```
-دو باکت Storage بسازید: `uploads` (خصوصی) و `models` (عمومی).
-
-### ۲) Worker (سرور خارج از ایران)
 ```bash
-cd worker
+# ۱) نصب وابستگی‌ها
 npm install
-cp .env.example .env   # کلیدها و WORKER_SHARED_SECRET
+
+# ۲) ساخت فایل تنظیمات و پر کردن مقادیر
+cp .env.example .env
+#   - WORKER_SHARED_SECRET را با  openssl rand -hex 32  بسازید
+#   - GEMINI_API_KEY و/یا WRAPPER_API_KEY را وارد کنید
+
+# ۳) اجرای حالت توسعه
 npm run dev
+
+# یا اجرای پروداکشن
+npm run build && npm start
 ```
 
-### ۳) اپلیکیشن وب (Next.js)
+بررسی سلامت سرویس:
+
 ```bash
-cd web
-npm install
-cp .env.local.example .env.local   # کلیدهای Supabase + WORKER_URL + WORKER_SHARED_SECRET
-npm run dev   # http://localhost:3000
+curl http://localhost:8080/health
+# => {"ok":true}
 ```
 
-> ⚠️ `WORKER_SHARED_SECRET` باید در `web` و `worker` **دقیقاً یکسان** باشد.
+---
+
+## نکات دیپلوی
+
+- این سرویس را روی سروری **خارج از ایران** اجرا کنید (مثلاً VPS اروپا یا یک سرویس ابری).
+- مقدار `WORKER_SHARED_SECRET` باید **عیناً** روی سایت اصلی و Worker یکسان باشد.
+- روی سایت اصلی، متغیر `WORKER_URL` را به آدرس عمومی این سرویس تنظیم کنید.
+- کلید گوگل/واسط فقط روی این سرور نگهداری می‌شود؛ سایت اصلی و کاربر هرگز آن را نمی‌بینند.
+
+---
+
+## امنیت
+
+هر درخواست به `/generate` باید با هدرهای زیر امضا شود (نمونه در `integration/nextjs-callWorker.ts`):
+
+- `x-timestamp`: زمان میلی‌ثانیه‌ای
+- `x-signature`: HMAC-SHA256 از `${timestamp}.${rawBody}` با کلید مشترک
+
+درخواست‌های قدیمی‌تر از ۵ دقیقه رد می‌شوند (جلوگیری از replay attack).

@@ -55,8 +55,10 @@ export class AvalaiProvider implements ImageProvider {
     parts.push({ text: prompt });
 
     const ai = this.getClient();
+    // مدل پرو (Nano Banana Pro) فرایند Thinking دارد و باید هر دو مدالیته TEXT+IMAGE فعال باشد؛
+    // در غیر این صورت finishReason=STOP می‌دهد و هیچ تصویری برنمی‌گرداند.
     const makeConfig = (withSize: boolean) => ({
-      responseModalities: ["IMAGE"],
+      responseModalities: ["TEXT", "IMAGE"],
       // کنترل رزولوشن (1K / 2K / 4K) — از طریق SDK بومی قابل اعتمادتر از مسیر سازگار با OpenAI است.
       imageConfig: withSize && imageSize ? { imageSize } : undefined,
     });
